@@ -33,14 +33,22 @@ async function bootstrap() {
   console.log(`Application is running on: http://localhost:${port}`);
   console.log(`Swagger documentation: http://localhost:${port}/api`);
 }
-bootstrap();
-// Catch startup errors and ensure process exits with non-zero code so orchestrators notice
+// Register robust handlers before starting the app so any startup errors are caught
 process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled Rejection during startup:', reason);
-  process.exit(1);
+  const msg = (reason && typeof reason === 'object' && 'stack' in reason) ? (reason as any).stack : String(reason);
+  console.error(`[${new Date().toISOString()}] Unhandled Rejection:`, msg);
+  // give a tiny delay so logs flush, then exit
+  setTimeout(() => process.exit(1), 100);
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('Uncaught Exception during startup:', err);
+  const msg = (err && typeof err === 'object' && 'stack' in err) ? (err as any).stack : String(err);
+  console.error(`[${new Date().toISOString()}] Uncaught Exception:`, msg);
+  setTimeout(() => process.exit(1), 100);
+});
+
+// Start the app and catch any errors synchronously/asynchronously
+bootstrap().catch((err) => {
+  console.error(`[${new Date().toISOString()}] Fatal error during bootstrap:`, err && (err.stack || err));
   process.exit(1);
 });
