@@ -34,3 +34,13 @@ async function bootstrap() {
   console.log(`Swagger documentation: http://localhost:${port}/api`);
 }
 bootstrap();
+// Catch startup errors and ensure process exits with non-zero code so orchestrators notice
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled Rejection during startup:', reason);
+  process.exit(1);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception during startup:', err);
+  process.exit(1);
+});

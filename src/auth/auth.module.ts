@@ -15,7 +15,14 @@ import { LocalStrategy } from './strategies/local.strategy';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
+        // Fail fast with a clear error if JWT_SECRET is not configured
+        secret: (() => {
+          const s = configService.get<string>('JWT_SECRET');
+          if (!s) {
+            throw new Error('JWT_SECRET não definido. Defina a variável de ambiente JWT_SECRET.');
+          }
+          return s;
+        })(),
         signOptions: {
           expiresIn: configService.get<string>('JWT_EXPIRES_IN', '7d'),
         },
