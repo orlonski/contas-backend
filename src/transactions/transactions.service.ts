@@ -155,16 +155,35 @@ export class TransactionsService {
       }
     }
 
-    for (let i = 0; i < totalInstallments; i++) {
-      const installmentDate = new Date(date);
-      installmentDate.setMonth(installmentDate.getMonth() + i);
+    // Calcular o mês/ano da fatura da primeira parcela
+    let currentInvoiceMonth = this.calculateInvoiceMonthYear(date, account?.closingDay || 1);
 
+    for (let i = 0; i < totalInstallments; i++) {
+      let installmentDate: Date;
       let invoiceId = null;
+
       if (creditCardId && account) {
+        // Para cartão de crédito: usar a data de vencimento da fatura
+        const dueDay = account.dueDay || 1;
+        const closingDay = account.closingDay || 1;
+
+        // Criar data baseada no mês/ano da fatura e dia de vencimento
+        installmentDate = new Date(currentInvoiceMonth.year, currentInvoiceMonth.month - 1, dueDay);
+
+        // Se o vencimento for antes do fechamento, é no próximo mês
+        if (dueDay < closingDay) {
+          installmentDate.setMonth(installmentDate.getMonth() + 1);
+        }
+
+        // Obter ou criar a fatura para este mês
         invoiceId = await this.invoicesService.getOrCreateInvoiceForTransaction(
           creditCardId,
           installmentDate,
         );
+      } else {
+        // Para contas normais: usar a lógica antiga (somar meses)
+        installmentDate = new Date(date);
+        installmentDate.setMonth(installmentDate.getMonth() + i);
       }
 
       const transaction = await this.prisma.transaction.create({
@@ -188,9 +207,47 @@ export class TransactionsService {
       });
 
       transactions.push(transaction);
+
+      // Avançar para o próximo mês da fatura
+      if (creditCardId && account) {
+        currentInvoiceMonth = this.addMonthToInvoice(currentInvoiceMonth);
+      }
     }
 
     return transactions;
+  }
+
+  /**
+   * Calcula o mês e ano da fatura com base na data da transação e dia de fechamento
+   */
+  private calculateInvoiceMonthYear(transactionDate: Date, closingDay: number): { month: number; year: number } {
+    const day = transactionDate.getDate();
+    let month = transactionDate.getMonth() + 1; // getMonth() retorna 0-11
+    let year = transactionDate.getFullYear();
+
+    // Se a transação foi feita após o fechamento, vai para a próxima fatura
+    if (day > closingDay) {
+      month++;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+    }
+
+    return { month, year };
+  }
+
+  /**
+   * Adiciona um mês ao período da fatura
+   */
+  private addMonthToInvoice(invoiceMonthYear: { month: number; year: number }): { month: number; year: number } {
+    let { month, year } = invoiceMonthYear;
+    month++;
+    if (month > 12) {
+      month = 1;
+      year++;
+    }
+    return { month, year };
   }
 
   private async createRecurring(userId: string, dto: CreateTransactionDto) {
