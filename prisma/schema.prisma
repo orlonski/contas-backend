@@ -1,0 +1,194 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ========================================
+// USER & AUTH
+// ========================================
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+
+  @@map("users")
+}
+
+// ========================================
+// ACCOUNTS
+// ========================================
+
+enum AccountType {
+  CHECKING  // Conta Corrente
+  SAVINGS   // Poupança
+  CREDIT_CARD // Cartão de Crédito
+}
+
+model Account {
+  id             String      @id @default(uuid())
+  userId         String
+  name           String
+  initialBalance Decimal     @default(0) @db.Decimal(10, 2)
+  type           AccountType
+  isActive       Boolean     @default(true)
+
+  // Campos específicos para Cartão de Crédito
+  dueDay         Int? // Dia de vencimento da fatura
+  closingDay     Int? // Dia de fechamento da fatura
+  creditLimit    Decimal? @db.Decimal(10, 2)
+  bank           String? // Banco emissor
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions        Transaction[]
+  transfersFrom       Transaction[] @relation("TransferFrom")
+  transfersTo         Transaction[] @relation("TransferTo")
+  invoices            Invoice[]
+
+  @@map("accounts")
+}
+
+// ========================================
+// CATEGORIES
+// ========================================
+
+enum CategoryType {
+  EXPENSE // Despesa
+  INCOME  // Receita
+}
+
+model Category {
+  id       String       @id @default(uuid())
+  userId   String
+  name     String
+  icon     String? // slug do ícone
+  type     CategoryType
+  parentId String? // Para subcategorias
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent       Category?     @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children     Category[]    @relation("CategoryHierarchy")
+  transactions Transaction[]
+
+  @@map("categories")
+}
+
+// ========================================
+// TRANSACTIONS
+// ========================================
+
+enum TransactionType {
+  EXPENSE   // Despesa
+  INCOME    // Receita
+  TRANSFER  // Transferência
+}
+
+enum RecurrenceType {
+  SIMPLE    // Transação única
+  INSTALLMENT // Parcelada
+  RECURRING // Recorrência avançada
+}
+
+enum IntervalUnit {
+  DAY
+  WEEK
+  MONTH
+  YEAR
+}
+
+model Transaction {
+  id          String          @id @default(uuid())
+  userId      String
+  accountId   String
+  categoryId  String?
+  amount      Decimal         @db.Decimal(10, 2)
+  date        DateTime
+  description String
+  type        TransactionType
+
+  // Parcelamento
+  recurrenceType   RecurrenceType @default(SIMPLE)
+  installmentStart Int?           @default(1) // Número da parcela inicial
+  installmentEnd   Int? // Número da parcela final
+  totalInstallments Int? // Total de parcelas
+  totalAmount      Decimal?       @db.Decimal(10, 2) // Valor total (soma de todas as parcelas)
+
+  // Recorrência Avançada
+  intervalNumber Int?          @default(1) // Exemplo: a cada "2" meses
+  intervalUnit   IntervalUnit?
+  isIndefinite   Boolean       @default(false)
+  occurrences    Int? // Número de ocorrências (se não indefinido)
+
+  // Transferência
+  transferFromId String? // Conta de origem (se for transferência)
+  transferToId   String? // Conta de destino (se for transferência)
+
+  // Cartão de Crédito
+  creditCardId String? // ID do cartão (se despesa for no cartão)
+  invoiceId    String? // ID da fatura (calculado automaticamente)
+
+  // Series - Para agrupar transações parceladas/recorrentes
+  seriesId String? // UUID comum para transações da mesma série
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category     Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  transferFrom Account?  @relation("TransferFrom", fields: [transferFromId], references: [id], onDelete: SetNull)
+  transferTo   Account?  @relation("TransferTo", fields: [transferToId], references: [id], onDelete: SetNull)
+  invoice      Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  @@map("transactions")
+}
+
+// ========================================
+// INVOICES (Faturas de Cartão)
+// ========================================
+
+enum InvoiceStatus {
+  OPEN   // Aberta
+  CLOSED // Fechada
+  PAID   // Paga
+}
+
+model Invoice {
+  id         String        @id @default(uuid())
+  accountId  String // ID do cartão de crédito
+  month      Int // 1-12
+  year       Int
+  closingDate DateTime
+  dueDate    DateTime
+  totalAmount Decimal      @default(0) @db.Decimal(10, 2)
+  status     InvoiceStatus @default(OPEN)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@unique([accountId, month, year])
+  @@map("invoices")
+}
